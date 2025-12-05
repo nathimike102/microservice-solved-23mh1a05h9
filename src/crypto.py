@@ -5,6 +5,10 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
+from cryptography.hazmat.primitives import hashes
+import base64
+import re
 
 
 def generate_rsa_keypair(key_size: int = 4096) -> Tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
@@ -146,3 +150,83 @@ if __name__ == "__main__":
     priv, pub = write_keypair_files()
     print(f"Wrote: {priv}")
     print(f"Wrote: {pub}")
+
+
+def decrypt_seed(encrypted_seed_b64: str, private_key) -> str:
+    """
+    Decrypt base64-encoded encrypted seed using RSA/OAEP
+    
+    Args:
+        encrypted_seed_b64: Base64-encoded ciphertext
+        private_key: RSA private key object
+    
+    Returns:
+        Decrypted hex seed (64-character string)
+    
+    Implementation:
+    1. Base64 decode the encrypted seed string
+    
+    2. RSA/OAEP decrypt with SHA-256
+       - Padding: OAEP
+       - MGF: MGF1(SHA-256)
+       - Hash: SHA-256
+       - Label: None
+    
+    3. Decode bytes to UTF-8 string
+    
+    4. Validate: must be 64-character hex string
+       - Check length is 64
+       - Check all characters are in '0123456789abcdef'
+    
+    5. Return hex seed
+    """
+    if not isinstance(encrypted_seed_b64, str):
+        raise TypeError("encrypted_seed_b64 must be a base64 string")
+
+    try:
+        ciphertext = base64.b64decode(encrypted_seed_b64)
+    except Exception as e:
+        raise ValueError("Invalid base64 for encrypted seed") from e
+
+    try:
+        plaintext = private_key.decrypt(
+            ciphertext,
+            asym_padding.OAEP(
+                mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+    except Exception as e:
+        raise RuntimeError("Decryption failed") from e
+
+    try:
+        seed = plaintext.decode("utf-8")
+    except Exception as e:
+        raise RuntimeError("Decrypted seed is not valid UTF-8") from e
+
+    # Validate hex seed: exactly 64 chars, lowercase hex
+    if not re.fullmatch(r"[0-9a-f]{64}", seed):
+        raise ValueError("Decrypted seed is not a 64-character lowercase hex string")
+
+    return seed
+
+
+def save_seed_to_data(hex_seed: str, data_dir: str = "/data") -> Path:
+    """
+    Returns the Path to the saved file.
+    """
+    if not re.fullmatch(r"[0-9a-f]{64}", hex_seed):
+        raise ValueError("hex_seed must be a 64-character lowercase hex string")
+
+    data_path = Path(data_dir)
+    data_path.mkdir(parents=True, exist_ok=True)
+    seed_file = data_path / "seed.txt"
+    seed_file.write_text(hex_seed, encoding="utf-8")
+    # set permissions to readable by owner only
+    try:
+        os.chmod(seed_file, stat.S_IRUSR | stat.S_IWUSR)
+    except Exception:
+        pass
+
+    return seed_file
