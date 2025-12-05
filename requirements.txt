@@ -1,0 +1,4 @@
+cryptography>=40.0
+pyotp>=2.6.0
+fastapi>=0.95
+uvicorn>=0.22
