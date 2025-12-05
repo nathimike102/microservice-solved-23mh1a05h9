@@ -9,6 +9,8 @@ from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives import hashes
 import base64
 import re
+import binascii
+import pyotp
 
 
 def generate_rsa_keypair(key_size: int = 4096) -> Tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
@@ -205,7 +207,6 @@ def decrypt_seed(encrypted_seed_b64: str, private_key) -> str:
     except Exception as e:
         raise RuntimeError("Decrypted seed is not valid UTF-8") from e
 
-    # Validate hex seed: exactly 64 chars, lowercase hex
     if not re.fullmatch(r"[0-9a-f]{64}", seed):
         raise ValueError("Decrypted seed is not a 64-character lowercase hex string")
 
@@ -223,10 +224,110 @@ def save_seed_to_data(hex_seed: str, data_dir: str = "/data") -> Path:
     data_path.mkdir(parents=True, exist_ok=True)
     seed_file = data_path / "seed.txt"
     seed_file.write_text(hex_seed, encoding="utf-8")
-    # set permissions to readable by owner only
     try:
         os.chmod(seed_file, stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
         pass
 
     return seed_file
+
+
+def _hex_to_base32(hex_seed: str) -> str:
+    """Convert 64-character hex seed to base32 string (no padding removed)."""
+    if not re.fullmatch(r"[0-9a-f]{64}", hex_seed):
+        raise ValueError("hex_seed must be a 64-character lowercase hex string")
+    raw = binascii.unhexlify(hex_seed)
+    b32 = base64.b32encode(raw).decode("utf-8")
+    return b32
+    
+def _totp_from_raw_key(raw_key: bytes, for_time: int = None, period: int = 30, digits: int = 6) -> str:
+    """Generate TOTP code using raw bytes key (HMAC-SHA1) — pure-Python fallback."""
+    if for_time is None:
+        for_time = int(time.time())
+    counter = int(for_time / period)
+    counter_bytes = counter.to_bytes(8, "big")
+    h = hmac.new(raw_key, counter_bytes, hashlib.sha1).digest()
+    offset = h[-1] & 0x0F
+    code_int = (int.from_bytes(h[offset : offset + 4], "big") & 0x7FFFFFFF) % (10 ** digits)
+    return str(code_int).zfill(digits)
+
+
+def generate_totp_code(hex_seed: str) -> str:
+    """
+    Generate current TOTP code from hex seed
+    
+    Args:
+        hex_seed: 64-character hex string
+    
+    Returns:
+        6-digit TOTP code as string
+    
+    Implementation:
+    1. Convert hex seed to bytes
+       - Parse 64-character hex string to bytes
+       - Use your language's hex-to-bytes conversion
+    
+    2. Convert bytes to base32 encoding
+       - Encode the bytes using base32 encoding
+       - Decode to string (required by most TOTP libraries)
+    
+    3. Create TOTP object using your language's TOTP library
+       - Initialize with base32-encoded seed
+       - Use default settings: SHA-1, 30s period, 6 digits
+    
+    4. Generate current TOTP code
+       - Call library method to get current code
+       - Returns 6-digit string (e.g., "123456")
+    
+    5. Return the code
+    """
+    # Prefer pyotp if available, otherwise use local implementation.
+    raw = binascii.unhexlify(hex_seed)
+    if pyotp is not None:
+        b32 = _hex_to_base32(hex_seed)
+        totp = pyotp.TOTP(b32)
+        return totp.now()
+    else:
+        return _totp_from_raw_key(raw)
+
+
+def verify_totp_code(hex_seed: str, code: str, valid_window: int = 1) -> bool:
+    """
+    Verify TOTP code with time window tolerance
+    
+    Args:
+        hex_seed: 64-character hex string
+        code: 6-digit code to verify
+        valid_window: Number of periods before/after to accept (default 1 = ±30s)
+    
+    Returns:
+        True if code is valid, False otherwise
+    
+    Implementation:
+    1. Convert hex seed to base32 (same process as generation)
+    
+    2. Create TOTP object with base32 seed
+    
+    3. Verify code with time window tolerance
+       - Use valid_window parameter (default 1 = ±30 seconds)
+       - This accounts for clock skew and network delay
+       - Library checks current period ± valid_window periods
+    
+    4. Return verification result
+    """
+    if not re.fullmatch(r"\d{6}", code):
+        raise ValueError("code must be a 6-digit string")
+    raw = binascii.unhexlify(hex_seed)
+    if pyotp is not None:
+        b32 = _hex_to_base32(hex_seed)
+        totp = pyotp.TOTP(b32)
+        return totp.verify(code, valid_window=valid_window)
+    else:
+        now = int(time.time())
+        period = 30
+        for offset in range(-valid_window, valid_window + 1):
+            t = now + offset * period
+            expected = _totp_from_raw_key(raw, for_time=t)
+            if hmac.compare_digest(expected, code):
+                return True
+        return False
