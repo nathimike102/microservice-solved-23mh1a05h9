@@ -10,7 +10,15 @@ from cryptography.hazmat.primitives import hashes
 import base64
 import re
 import binascii
-import pyotp
+import time
+import hmac
+import hashlib
+
+# Make pyotp optional
+try:
+    import pyotp
+except Exception:
+    pyotp = None
 
 
 def generate_rsa_keypair(key_size: int = 4096) -> Tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
@@ -281,7 +289,6 @@ def generate_totp_code(hex_seed: str) -> str:
     
     5. Return the code
     """
-    # Prefer pyotp if available, otherwise use local implementation.
     raw = binascii.unhexlify(hex_seed)
     if pyotp is not None:
         b32 = _hex_to_base32(hex_seed)
