@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Generate commit proof for submission"""
 import subprocess
 import sys
 from pathlib import Path
