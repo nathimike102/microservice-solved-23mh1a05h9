@@ -338,3 +338,70 @@ def verify_totp_code(hex_seed: str, code: str, valid_window: int = 1) -> bool:
             if hmac.compare_digest(expected, code):
                 return True
         return False
+
+
+def sign_message(message: str, private_key: rsa.RSAPrivateKey) -> bytes:
+    """
+    Sign a message using RSA-PSS with SHA-256
+    
+    Args:
+        message: ASCII string to sign (e.g., commit hash)
+        private_key: RSA private key object
+    
+    Returns:
+        Signature bytes
+    
+    Implementation:
+    1. Encode commit hash as ASCII/UTF-8 bytes
+       - CRITICAL: Sign the ASCII string, NOT binary hex!
+       - Use message.encode('utf-8')
+    
+    2. Sign using RSA-PSS with SHA-256
+       - Padding: PSS
+       - MGF: MGF1 with SHA-256
+       - Hash Algorithm: SHA-256
+       - Salt Length: Maximum
+    
+    3. Return signature bytes
+    """
+    message_bytes = message.encode('utf-8')
+    signature = private_key.sign(
+        message_bytes,
+        asym_padding.PSS(
+            mgf=asym_padding.MGF1(hashes.SHA256()),
+            salt_length=asym_padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256()
+    )
+    return signature
+
+
+def encrypt_with_public_key(data: bytes, public_key: rsa.RSAPublicKey) -> bytes:
+    """
+    Encrypt data using RSA/OAEP with public key
+    
+    Args:
+        data: Bytes to encrypt (e.g., signature)
+        public_key: RSA public key object
+    
+    Returns:
+        Encrypted ciphertext bytes
+    
+    Implementation:
+    1. Encrypt signature bytes using RSA/OAEP with SHA-256
+       - Padding: OAEP
+       - MGF: MGF1 with SHA-256
+       - Hash Algorithm: SHA-256
+       - Label: None
+    
+    2. Return encrypted ciphertext bytes
+    """
+    ciphertext = public_key.encrypt(
+        data,
+        asym_padding.OAEP(
+            mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return ciphertext
