@@ -1,0 +1,26 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: microservice_app
+    ports:
+      - "8080:8080"
+    volumes:
+      - seed-data:/data
+      - cron-output:/cron
+      # Local key files for development (read-only)
+      - ./student_private.pem:/app/student_private.pem:ro
+      - ./student_public.pem:/app/student_public.pem:ro
+      - ./instructor_public.pem:/app/instructor_public.pem:ro
+      # Mount scripts so cron can execute them from /app/scripts
+      - ./scripts:/app/scripts:ro
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+
+volumes:
+  seed-data:
+  cron-output:

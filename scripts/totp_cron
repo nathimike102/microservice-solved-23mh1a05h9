@@ -1,0 +1,5 @@
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/install/bin
+PYTHONPATH=/install/lib/python3.11/site-packages
+
+* * * * * root /usr/local/bin/python3 /app/scripts/cron_write_totp.py >> /var/log/cron.log 2>&1
